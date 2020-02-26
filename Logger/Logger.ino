@@ -6,7 +6,6 @@
  * - temperature
  * - pressure
  * - humidity
- * 
  * It reads other environmental parameters such as light intensity.
  * 
  * It reads ambient sound via the onboard microphone. It performs FFT
@@ -65,7 +64,13 @@
 // TBD
 #include <arduinoFFT.h>
 
+#include <SPI.h>
+#include <SD.h>
+#include "RTClib.h"
+
 arduinoFFT FFT = arduinoFFT();
+
+RTC_DS3231 rtc;
 
 // store readings from sensors
 float temperature, humidity, pressure;
@@ -75,6 +80,9 @@ float magnet_x, magnet_y, magnet_z;
 
 // line output to serial
 char linebuf_all[200];
+char filebuff[200];
+
+const char filename[] = "datalog.txt";
 
 // store readings from light sensor
 int r, g, b, w;
@@ -111,8 +119,26 @@ int ledState = LOW;
 // then do the sketch upload
 int wdt = 1;
 
+const int chipSelect = 10;
+
+long start = millis();
+
+const int SERIAL_TIMEOUT = 5000;
+
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);  
+//  while (!Serial) {
+//    ; // wait for serial port to connect. Needed for native USB port only
+//  }
+
+  Serial.println("starting");
+  Serial.println(millis() - start);
+  
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
   delay(srelax);
 
   // configure watchdog
@@ -152,9 +178,25 @@ void setup() {
 
   // Let's allow things to settle down.
   delay(srelax);
+
+  Serial.print("Initializing SD card...");
+  
+  
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+    while (1);
+  }
+  
+  Serial.println("card initialized.");
+
+  Serial.print("Writing to file: ");
+  Serial.println(filename);
 }
 
 void loop() {
+  DateTime now = rtc.now();
   // Reload the WDTs RR[0] reload register
   // this will reset the watchdog every loop
   // as long as all goes well
@@ -227,8 +269,8 @@ void loop() {
 
   // prepare the line output with all data
   sprintf(linebuf_all,
-    "a,%.2f,%.1f,%.2f,g,%.2f,%.2f,%.2f,r,%.2f,%.2f,%.2f,m,%.1f,%.1f,%.1f,l,%u,%u,%u,%u,n,%u",
-    temperature, humidity, pressure,
+    "%lu,a,%.2f,%.1f,%.2f,g,%.2f,%.2f,%.2f,r,%.2f,%.2f,%.2f,m,%.1f,%.1f,%.1f,l,%u,%u,%u,%u,n,%u",
+    now.unixtime(),temperature, humidity, pressure,
     acc_x, acc_y, acc_z,
     gyro_x, gyro_y, gyro_z,
     magnet_x, magnet_y, magnet_z,
@@ -237,6 +279,29 @@ void loop() {
 
   // send data out
   Serial.println(linebuf_all);
+
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  File dataFile = SD.open(filename, FILE_WRITE);
+
+  if (!dataFile) {
+    Serial.print("error opening ");
+    Serial.println(filename);
+    while (1);
+  }
+  // write to the datafile: 
+
+  sprintf(filebuff,
+  "%lu,a,%.2f,%.1f,%.2f,g,%.2f,%.2f,%.2f,r,%.2f,%.2f,%.2f,m,%.1f,%.1f,%.1f,l,%u,%u,%u,%u,n,%u",
+  now.unixtime(), temperature, humidity, pressure,
+  acc_x, acc_y, acc_z,
+  gyro_x, gyro_y, gyro_z,
+  magnet_x, magnet_y, magnet_z,
+  r, g, b, w,
+  int(ftsum));
+    
+  dataFile.println(filebuff);
+  dataFile.close();
 
   // blink the LED every cycle
   // (heartbeat indicator)

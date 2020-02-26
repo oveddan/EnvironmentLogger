@@ -1,6 +1,10 @@
 # WeatherStation
 
-Read environmental metrics:
+This is a modification of @FlorinAndrei excellent [WeatherStation](https://github.com/FlorinAndrei/WeatherStation). Repository.
+
+It is a modification of that solution to, instead of sending log data over serial to a raspberry pi, it saves it to an SD card module, and logs the time of each reading by grabbing the time from a DS3231 clock chip.
+
+It runs on the Arduino Nano 33 BLE sense, and reads environmental metrics:
 - temperature
 - relative humidity
 - air pressure
@@ -10,7 +14,20 @@ Read environmental metrics:
 - light: RGB components plus overall intensity
 - noise
 
-Send the metrics to a data store such as Graphite. Try hard to not lose data: read the sensors often, cache data for a while when Graphite is not available.
+Every reading, it also grabs the time from the clock module, and logs all of the readings with the time to an sd card, on a file called "datalog.txt"
+
+The contents of this log file look like:
+
+```
+1581542711,a,27.23,32.1,1025.99,g,-0.06,-0.00,0.98,r,5.13,1.95,0.79,m,100.4,54.5,-33.1,l,7,4,4,10,n,134
+1581542711,a,27.23,32.1,1026.04,g,-0.06,-0.01,0.98,r,4.94,1.83,0.79,m,99.8,54.6,-32.4,l,7,5,4,10,n,131
+1581542712,a,27.27,32.3,1026.08,g,-0.06,-0.01,0.97,r,5.74,1.83,0.73,m,99.8,54.4,-34.0,l,7,4,4,9,n,142
+1581542712,a,27.29,32.1,1026.05,g,-0.06,-0.00,0.97,r,5.00,1.83,0.85,m,100.4,54.4,-33.7,l,7,4,4,10,n,137
+1581542713,a,27.27,32.1,1026.04,g,-0.06,-0.01,0.98,r,5.49,1.89,0.92,m,99.7,53.9,-33.2,l,7,5,4,10,n,167
+1581542713,a,27.29,32.2,1026.07,g,-0.06,-0.00,0.98,r,4.88,1.83,0.73,m,99.7,54.3,-32.2,l,7,5,4,10,n,139
+1581542714,a,27.30,32.3,1026.07,g,-0.06,-0.01,0.97,r,5.13,2.08,0.92,m,99.4,54.9,-31.7,l,7,5,4,10,n,139
+1581542714,a,27.34,32.1,1026.06,g,-0.06,-0.00,0.98,r,5.13,2.08,0.79,m,99.1,54.2,-32.1,l,7,4,4,9,n,126
+```
 
 ## Software
 
@@ -28,12 +45,6 @@ Thread on the Arduino forum regarding the loop() freeze bug: https://forum.ardui
 
 Thread on Nordic Semi Devzone regarding the watchdog: https://devzone.nordicsemi.com/f/nordic-q-a/53904/nrf52840-watchdog-for-arduino-nano-33-ble-sense
 
-### Python
-
-Python for [the parser / cache / logger](weather_station.py). Multithreaded to reduce interruptions. Cache data in memory when storage is offline.
-
-All sensor readings within the same second are averaged by the parser. This reduces noise; the data store cannot deal with a time resolution better than 1 second anyway.
-
 ## Hardware
 
 ### Arduino
@@ -44,44 +55,11 @@ The [Arduino Nano 33 BLE Sense](https://store.arduino.cc/usa/nano-33-ble-sense) 
 
 Surprisingly, the Nano 33 is fast enough to do FFT on the noise signal in real time. This would have been difficult with older platforms.
 
-### Raspberry Pi
+### SD Card Module
 
-![RPi0](/images/rpi0.jpg)
-
-The [Raspberry Pi Zero W](https://www.raspberrypi.org/products/raspberry-pi-zero-w/) is used to read data from the Arduino, parse it, cache it when necessary, and write it into a [Graphite](https://graphiteapp.org/) server as timeseries data. It runs the Python parser / cache / logger.
+### Real Time Clock
 
 ### The whole system
-
-The Arduino is plugged into one of the USB ports on the Pi Zero. This provides power to the Arduino, and also establishes the serial/USB connection between devices. Power to the whole system is provided via the second USB port on the Pi Zero.
-
-The Pi Zero is on the local WiFi network. That's how it connects to the Graphite server.
-
-This is the whole system, mounted on a wall in a 3D-printed bracket that also protects it (to some extent) from rain:
-
-![system](/images/system.jpg)
-
-## Sensor corrections - linear regression
-
-The temperature sensor on the Nano 33 seems quite inaccurate. At mid-range outdoors temperatures, measured in Celsius, its readings differ from reality by half a dozen degrees or so. The error appears to be linear.
-
-This is due to the sensor picking up heat from all the other components on the board. It depends on how hard the other components are working, on ventilation and other factors. There are ways to mitigate it to some extent. See more details [on this page](https://www.arduino.cc/en/Guide/NANO33BLESense).
-
-Fortunately, we have a public weather station nearby, whose readings we could use to calibrate the Arduino:
-- read the temperature on the Arduino
-- get the real temperature from the public weather station
-- write the two values in a CSV file - this makes one data point
-
-If enough data points are collected, linear regression could be performed on the data, which would provide correction parameters for the Arduino. If **y** is the real temperature, and **x** is the temperature indicated by the Arduino, and **a** and **b** are the correction parameters, then:
-
-```
-y = ax + b
-```
-
-The data points are collected in [this CSV file](weather-temp.csv).
-
-The linear regression code is in [the Jupyter notebook](linear_regression_temp_sensor.ipynb). At the end of the notebook you can see the most recent correction parameters; the value of **b** (offset) is quite substantial, but **a** (the slope) is close to 1. Bad offset, decent slope, good enough linearity so far.
-
-This code does not apply corrections to the temperature readings - since correcting the sensor is an ongoing project, changing the corrections would alter the data in Graphite all the time. We chose to write into Graphite the "wrong" temperature. Corrections are applied in Grafana, when the data is visualized.
 
 ## FFT (Fast Fourier Transform) for noise
 
